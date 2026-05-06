@@ -87,6 +87,7 @@ export function YouTubePlayer({
       if (disposed) return
       const player = new YT.Player(slot, {
         videoId: track.ytVideoId,
+        host: 'https://www.youtube-nocookie.com',
         width: '100%',
         height: '100%',
         playerVars: {

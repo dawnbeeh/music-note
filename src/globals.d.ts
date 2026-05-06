@@ -14,6 +14,7 @@ interface YTPlayer {
 
 interface YTPlayerOptions {
   videoId?: string
+  host?: string
   width?: number | string
   height?: number | string
   playerVars?: Record<string, unknown>
