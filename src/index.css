@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-text font-sans antialiased;
+    color-scheme: dark;
+  }
+
+  ::selection {
+    @apply bg-accent-dim text-text-strong;
+  }
+}
