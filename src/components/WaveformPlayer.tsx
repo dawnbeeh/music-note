@@ -4,11 +4,13 @@ import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js'
 import HoverPlugin from 'wavesurfer.js/dist/plugins/hover.esm.js'
 import { db } from '../db'
 import type { Memo, Track } from '../db/types'
+import { canLoop } from '../db/memos'
 import {
-  canLoop,
   createMemo,
-  updateMemoBounds,
-} from '../db/memos'
+  setLoop,
+  updateMemoBoundsById,
+} from '../lib/memoActions'
+import { isTypingTarget } from '../lib/shortcuts'
 import { defaultColorIdForIndex, getColorHex, hexToRgba } from '../lib/colors'
 import { formatTime } from '../lib/format'
 import { SpeedInput } from './SpeedInput'
@@ -17,7 +19,6 @@ const REGION_PREFIX = 'memo_'
 const DRAFT_REGION_ID = 'draft_mark'
 const POINT_MIN_PAD = 0.5
 
-const COLOR_DRAG = 'rgba(244, 114, 182, 0.32)'
 const COLOR_DRAFT = 'rgba(244, 114, 182, 0.4)'
 
 const ZOOM_BASE = 80
@@ -65,6 +66,9 @@ export function WaveformPlayer({
   const [markStart, setMarkStart] = useState<number | null>(null)
   const [speed, setSpeed] = useState(1)
   const [zoom, setZoom] = useState(0)
+  const zoomRef = useRef(0)
+  zoomRef.current = zoom
+  const [showCursor, setShowCursor] = useState(true)
 
   const colorByMemoId = useMemo(() => {
     const sorted = [...memos].sort((a, b) => a.start - b.start)
@@ -101,9 +105,9 @@ export function WaveformPlayer({
       cursorWidth: 2,
       height: 96,
       normalize: true,
-      barWidth: 2,
-      barGap: 1,
-      barRadius: 2,
+      barWidth: 1,
+      barGap: 0,
+      barRadius: 0,
       autoScroll: true,
       autoCenter: true,
       plugins: [regions],
@@ -121,29 +125,6 @@ export function WaveformPlayer({
     wsRef.current = ws
     regionsRef.current = regions
 
-    regions.enableDragSelection({ color: COLOR_DRAG })
-
-    regions.on('region-created', async (region) => {
-      if (region.id.startsWith(REGION_PREFIX)) return
-      if (region.id === DRAFT_REGION_ID) return
-      region.remove()
-      const start = region.start
-      const end =
-        region.end > region.start + 0.05 ? region.end : undefined
-      const memo = await createMemo(track.id, start, end)
-      onSelectMemo(memo.id)
-    })
-
-    regions.on('region-updated', async (region) => {
-      if (!region.id.startsWith(REGION_PREFIX)) return
-      const id = region.id.slice(REGION_PREFIX.length)
-      const memo = memosRef.current.find((m) => m.id === id)
-      if (!memo) return
-      if (memo.end === undefined) return
-      if (memo.start === region.start && memo.end === region.end) return
-      await updateMemoBounds(id, region.start, region.end)
-    })
-
     regions.on('region-clicked', (region, e) => {
       if (!region.id.startsWith(REGION_PREFIX)) return
       e.stopPropagation()
@@ -158,7 +139,7 @@ export function WaveformPlayer({
       setDuration(ws.getDuration())
       const cached = await db.waveforms.get(track.id)
       if (!cached) {
-        const peaks = ws.exportPeaks({ maxLength: 8000 })
+        const peaks = ws.exportPeaks({ maxLength: 32000 })
         await db.waveforms.put({
           trackId: track.id,
           peaks,
@@ -223,7 +204,8 @@ export function WaveformPlayer({
       const color = regionColor(memo, selected)
       const existing = regions.getRegions().find((r) => r.id === id)
       if (!existing) {
-        regions.addRegion({
+        const memoId = memo.id
+        const region = regions.addRegion({
           id,
           start,
           end,
@@ -231,6 +213,14 @@ export function WaveformPlayer({
           drag: !isPoint,
           resize: !isPoint,
         })
+        if (!isPoint) {
+          region.on('update-end', () => {
+            const m = memosRef.current.find((x) => x.id === memoId)
+            if (!m) return
+            if (m.start === region.start && m.end === region.end) return
+            void updateMemoBoundsById(memoId, region.start, region.end)
+          })
+        }
       } else {
         existing.setOptions({ start, end, color })
       }
@@ -304,58 +294,119 @@ export function WaveformPlayer({
     ws.zoom(zoom)
   }, [zoom, ready])
 
-  // Edge-scroll while hovering near horizontal edges
+  // Cursor visibility toggle
+  useEffect(() => {
+    const ws = wsRef.current
+    if (!ws || !ready) return
+    ws.setOptions({ cursorWidth: showCursor ? 2 : 0 })
+  }, [showCursor, ready])
+
+  // Wheel zoom (around cursor) + Shift-wheel pan; drag-scrub with audio
   useEffect(() => {
     if (!ready) return
+    const ws = wsRef.current
     const scrollEl = containerRef.current?.querySelector(
       '[part="scroll"]',
     ) as HTMLElement | null
-    if (!scrollEl) return
+    if (!ws || !scrollEl) return
 
-    let velocity = 0
-    let raf = 0
-    const EDGE = 90
-    const MAX = 18
+    function getWrapper(): HTMLElement | null {
+      return scrollEl!.querySelector('[part="wrapper"]') as HTMLElement | null
+    }
+    function timeFromX(clientX: number): number {
+      const wrapper = getWrapper()
+      const dur = ws!.getDuration()
+      if (!wrapper || dur <= 0) return 0
+      const r = wrapper.getBoundingClientRect()
+      return Math.max(0, Math.min(dur, ((clientX - r.left) / r.width) * dur))
+    }
 
-    function onMove(e: MouseEvent) {
-      if (scrollEl!.scrollWidth <= scrollEl!.clientWidth) {
-        velocity = 0
+    function onWheel(e: WheelEvent) {
+      const dur = ws!.getDuration()
+      if (dur <= 0) return
+      if (e.shiftKey || e.deltaX !== 0) {
+        e.preventDefault()
+        scrollEl!.scrollLeft += e.deltaY + e.deltaX
         return
       }
-      const rect = scrollEl!.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      if (x < EDGE) {
-        const k = 1 - x / EDGE
-        velocity = -MAX * k * k
-      } else if (x > rect.width - EDGE) {
-        const k = 1 - (rect.width - x) / EDGE
-        velocity = MAX * k * k
-      } else {
-        velocity = 0
-      }
-    }
-    function onLeave() {
-      velocity = 0
-    }
-    function tick() {
-      if (velocity !== 0) {
-        const max = scrollEl!.scrollWidth - scrollEl!.clientWidth
-        scrollEl!.scrollLeft = Math.max(
-          0,
-          Math.min(max, scrollEl!.scrollLeft + velocity),
-        )
-      }
-      raf = requestAnimationFrame(tick)
+      e.preventDefault()
+      const minZoom = scrollEl!.clientWidth / dur
+      const wrapper = getWrapper()
+      if (!wrapper) return
+      const wRect = wrapper.getBoundingClientRect()
+      const tAtMouse = Math.max(
+        0,
+        Math.min(dur, ((e.clientX - wRect.left) / wRect.width) * dur),
+      )
+      const cur = zoomRef.current === 0 ? minZoom : zoomRef.current
+      const factor = e.deltaY < 0 ? 1.2 : 1 / 1.2
+      let next = Math.max(minZoom, Math.min(ZOOM_MAX, cur * factor))
+      if (next < minZoom * 1.02) next = 0
+      setZoom(next)
+      const mouseInScroll = e.clientX - scrollEl!.getBoundingClientRect().left
+      requestAnimationFrame(() => {
+        const w = getWrapper()
+        if (!w) return
+        const newWidth = w.getBoundingClientRect().width
+        const targetX = (tAtMouse / dur) * newWidth
+        scrollEl!.scrollLeft = Math.max(0, targetX - mouseInScroll)
+      })
     }
 
-    scrollEl.addEventListener('mousemove', onMove)
-    scrollEl.addEventListener('mouseleave', onLeave)
-    raf = requestAnimationFrame(tick)
+    let scrubActive = false
+    let scrubPointerId = -1
+    let wasPlaying = false
+    function onPointerDown(e: PointerEvent) {
+      if (e.button !== 0) return
+      const target = e.target as HTMLElement
+      if (
+        target.closest('[part="region"]') ||
+        target.closest('[data-handle]')
+      ) {
+        return
+      }
+      e.preventDefault()
+      e.stopPropagation()
+      scrubActive = true
+      scrubPointerId = e.pointerId
+      try {
+        scrollEl!.setPointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+      wasPlaying = ws!.isPlaying()
+      ws!.setTime(timeFromX(e.clientX))
+      if (!wasPlaying) void ws!.play()
+      scrollEl!.style.cursor = 'grabbing'
+    }
+    function onPointerMove(e: PointerEvent) {
+      if (!scrubActive || e.pointerId !== scrubPointerId) return
+      ws!.setTime(timeFromX(e.clientX))
+    }
+    function onPointerEnd(e: PointerEvent) {
+      if (!scrubActive || e.pointerId !== scrubPointerId) return
+      scrubActive = false
+      try {
+        scrollEl!.releasePointerCapture(e.pointerId)
+      } catch {
+        /* ignore */
+      }
+      if (!wasPlaying) ws!.pause()
+      scrollEl!.style.cursor = ''
+    }
+
+    scrollEl.addEventListener('wheel', onWheel, { passive: false })
+    scrollEl.addEventListener('pointerdown', onPointerDown, true)
+    scrollEl.addEventListener('pointermove', onPointerMove)
+    scrollEl.addEventListener('pointerup', onPointerEnd)
+    scrollEl.addEventListener('pointercancel', onPointerEnd)
 
     return () => {
-      cancelAnimationFrame(raf)
-      scrollEl.removeEventListener('mousemove', onMove)
-      scrollEl.removeEventListener('mouseleave', onLeave)
+      scrollEl.removeEventListener('wheel', onWheel)
+      scrollEl.removeEventListener('pointerdown', onPointerDown, true)
+      scrollEl.removeEventListener('pointermove', onPointerMove)
+      scrollEl.removeEventListener('pointerup', onPointerEnd)
+      scrollEl.removeEventListener('pointercancel', onPointerEnd)
     }
   }, [ready])
 
@@ -363,6 +414,80 @@ export function WaveformPlayer({
     setSpeed(rate)
     wsRef.current?.setPlaybackRate(rate, true)
   }
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!ready) return
+    function onKey(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) return
+      if (e.metaKey || e.ctrlKey) return
+      const ws = wsRef.current
+      if (!ws) return
+      const dur = ws.getDuration()
+      const cur = ws.getCurrentTime()
+      const step = e.shiftKey ? 5 : e.altKey ? 0.1 : 1
+      switch (e.key) {
+        case ' ':
+          e.preventDefault()
+          ws.playPause()
+          return
+        case 'ArrowLeft':
+          e.preventDefault()
+          ws.setTime(Math.max(0, cur - step))
+          return
+        case 'ArrowRight':
+          e.preventDefault()
+          ws.setTime(Math.min(dur, cur + step))
+          return
+        case 'i':
+        case 'I':
+          e.preventDefault()
+          startMark()
+          return
+        case 'o':
+        case 'O':
+          e.preventDefault()
+          if (markStart !== null) endMark()
+          return
+        case 'p':
+        case 'P':
+          e.preventDefault()
+          addPointAtCurrentTime()
+          return
+        case 'Escape':
+          e.preventDefault()
+          if (markStart !== null) cancelMark()
+          else onSelectMemo(null)
+          return
+        case '+':
+        case '=':
+          e.preventDefault()
+          zoomIn()
+          return
+        case '-':
+        case '_':
+          e.preventDefault()
+          zoomOut()
+          return
+        case '0':
+          e.preventDefault()
+          zoomReset()
+          return
+        case 'l':
+        case 'L': {
+          if (!selectedMemoId) return
+          const memo = memosRef.current.find((m) => m.id === selectedMemoId)
+          if (!memo || !canLoop(memo)) return
+          e.preventDefault()
+          void setLoop(track.id, memo.loop ? null : memo.id)
+          return
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, markStart, selectedMemoId, track.id])
 
   function zoomIn() {
     setZoom((z) => (z === 0 ? ZOOM_BASE : Math.min(z * 2, ZOOM_MAX)))
@@ -465,6 +590,19 @@ export function WaveformPlayer({
           {formatTime(duration)}
         </div>
         <div className="ml-auto flex items-center gap-3">
+          <button
+            type="button"
+            disabled={!ready}
+            onClick={() => setShowCursor((v) => !v)}
+            title={showCursor ? 'Hide playhead' : 'Show playhead'}
+            className={`rounded-md border px-2 py-1.5 text-xs ${
+              showCursor
+                ? 'border-line text-text hover:text-text-strong'
+                : 'border-line bg-bg-elev text-text-muted'
+            } disabled:opacity-40`}
+          >
+            {showCursor ? '👁 Bar' : '◌ Bar'}
+          </button>
           <div className="flex items-center gap-1 text-xs text-text-muted">
             <span>Zoom</span>
             <button

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Memo, Track } from '../db/types'
+import { canLoop } from '../db/memos'
 import {
-  canLoop,
   deleteMemo,
   setLoop,
   setMemoColor,
   updateMemoBody,
   updateMemoBounds,
-} from '../db/memos'
+} from '../lib/memoActions'
 import { MEMO_COLORS, getColorHex } from '../lib/colors'
 import { MemoTimeInput } from './MemoTimeInput'
 
@@ -172,7 +172,7 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
     setBody(value)
     if (saveTimer.current !== null) window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(() => {
-      void updateMemoBody(memo.id, value)
+      void updateMemoBody(memo, value)
     }, 350)
   }
 
@@ -181,22 +181,22 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
       window.clearTimeout(saveTimer.current)
       saveTimer.current = null
     }
-    if (body !== memo.body) void updateMemoBody(memo.id, body)
+    if (body !== memo.body) void updateMemoBody(memo, body)
   }
 
   function commitStart(sec: number) {
     if (memo.end !== undefined && sec > memo.end) {
-      void updateMemoBounds(memo.id, memo.end, sec)
+      void updateMemoBounds(memo, memo.end, sec)
     } else {
-      void updateMemoBounds(memo.id, sec, memo.end)
+      void updateMemoBounds(memo, sec, memo.end)
     }
   }
 
   function commitEnd(sec: number) {
     if (sec < memo.start) {
-      void updateMemoBounds(memo.id, sec, memo.start)
+      void updateMemoBounds(memo, sec, memo.start)
     } else {
-      void updateMemoBounds(memo.id, memo.start, sec)
+      void updateMemoBounds(memo, memo.start, sec)
     }
   }
 
@@ -279,7 +279,7 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              void deleteMemo(memo.id)
+              void deleteMemo(memo)
             }}
             className="rounded px-2 py-1 text-xs text-text-muted hover:text-red-400"
             title="Delete memo"
@@ -300,7 +300,7 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
                 key={c.id}
                 type="button"
                 onClick={() => {
-                  void setMemoColor(memo.id, c.id)
+                  void setMemoColor(memo, c.id)
                   setColorOpen(false)
                 }}
                 className={`h-5 w-5 rounded-full ring-2 transition-transform hover:scale-110 ${

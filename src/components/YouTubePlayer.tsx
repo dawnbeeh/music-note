@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { db } from '../db'
 import type { Memo, Track } from '../db/types'
-import { canLoop, createMemo } from '../db/memos'
+import { canLoop } from '../db/memos'
+import {
+  createMemo,
+  setLoop,
+  updateMemoBounds,
+} from '../lib/memoActions'
+import { isTypingTarget } from '../lib/shortcuts'
 import { defaultColorIdForIndex, getColorHex, hexToRgba } from '../lib/colors'
 import { formatTime } from '../lib/format'
 import { loadYouTubeIframeApi } from '../lib/youtube'
@@ -45,12 +51,20 @@ export function YouTubePlayer({
   const [time, setTime] = useState(0)
   const [duration, setDuration] = useState(track.durationSec)
   const [hoverPct, setHoverPct] = useState<number | null>(null)
-  const [drag, setDrag] = useState<{ start: number; current: number } | null>(
+  const [scrubbing, setScrubbing] = useState(false)
+  const scrubStateRef = useRef<{ wasPlaying: boolean; pointerId: number } | null>(
     null,
   )
+  const [edgeDrag, setEdgeDrag] = useState<{
+    memoId: string
+    edge: 'start' | 'end'
+    pointerId: number
+    preview: number
+  } | null>(null)
   const [markStart, setMarkStart] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [speed, setSpeed] = useState(1)
+  const [showCursor, setShowCursor] = useState(true)
 
   const colorByMemoId = useMemo(() => {
     const sorted = [...memos].sort((a, b) => a.start - b.start)
@@ -186,14 +200,22 @@ export function YouTubePlayer({
 
   function onPointerDown(e: React.PointerEvent) {
     if (!ready || e.button !== 0) return
-    const t = timeFromX(e.clientX)
-    setDrag({ start: t, current: t })
+    const p = playerRef.current
+    if (!p) return
+    e.preventDefault()
     e.currentTarget.setPointerCapture(e.pointerId)
+    const wasPlaying = playing
+    scrubStateRef.current = { wasPlaying, pointerId: e.pointerId }
+    setScrubbing(true)
+    p.seekTo(timeFromX(e.clientX), true)
+    if (!wasPlaying) p.playVideo()
   }
 
   function onPointerMove(e: React.PointerEvent) {
     setHoverPct(pctFromX(e.clientX))
-    if (drag) setDrag({ ...drag, current: timeFromX(e.clientX) })
+    if (scrubbing && scrubStateRef.current?.pointerId === e.pointerId) {
+      playerRef.current?.seekTo(timeFromX(e.clientX), true)
+    }
   }
 
   function onPointerUp(e: React.PointerEvent) {
@@ -202,20 +224,61 @@ export function YouTubePlayer({
     } catch {
       /* ignore */
     }
-    if (!ready || !drag) return
-    const a = Math.min(drag.start, drag.current)
-    const b = Math.max(drag.start, drag.current)
-    const minRange = Math.max(duration * 0.003, 0.2)
-    if (b - a > minRange) {
-      void createMemo(track.id, a, b).then((m) => onSelectMemo(m.id))
-    } else {
-      playerRef.current?.seekTo(drag.start, true)
-    }
-    setDrag(null)
+    if (scrubStateRef.current?.pointerId !== e.pointerId) return
+    const { wasPlaying } = scrubStateRef.current
+    scrubStateRef.current = null
+    setScrubbing(false)
+    if (!wasPlaying) playerRef.current?.pauseVideo()
   }
 
   function onPointerLeave() {
     setHoverPct(null)
+  }
+
+  function startEdgeDrag(
+    e: React.PointerEvent,
+    memo: Memo,
+    edge: 'start' | 'end',
+  ) {
+    if (!ready || memo.end === undefined) return
+    e.stopPropagation()
+    e.preventDefault()
+    const t = edge === 'start' ? memo.start : memo.end
+    setEdgeDrag({ memoId: memo.id, edge, pointerId: e.pointerId, preview: t })
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  function onEdgePointerMove(e: React.PointerEvent) {
+    if (!edgeDrag || edgeDrag.pointerId !== e.pointerId) return
+    e.stopPropagation()
+    const memo = memos.find((m) => m.id === edgeDrag.memoId)
+    if (!memo || memo.end === undefined) return
+    const t = timeFromX(e.clientX)
+    const clamped =
+      edgeDrag.edge === 'start'
+        ? Math.max(0, Math.min(t, memo.end - 0.05))
+        : Math.min(duration, Math.max(t, memo.start + 0.05))
+    setEdgeDrag({ ...edgeDrag, preview: clamped })
+  }
+
+  function onEdgePointerUp(e: React.PointerEvent) {
+    if (!edgeDrag || edgeDrag.pointerId !== e.pointerId) return
+    e.stopPropagation()
+    try {
+      ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+    const memo = memos.find((m) => m.id === edgeDrag.memoId)
+    if (memo && memo.end !== undefined) {
+      const start =
+        edgeDrag.edge === 'start' ? edgeDrag.preview : memo.start
+      const end = edgeDrag.edge === 'end' ? edgeDrag.preview : memo.end
+      if (start !== memo.start || end !== memo.end) {
+        void updateMemoBounds(memo, start, end)
+      }
+    }
+    setEdgeDrag(null)
   }
 
   function togglePlay() {
@@ -274,6 +337,67 @@ export function YouTubePlayer({
     )
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    if (!ready) return
+    function onKey(e: KeyboardEvent) {
+      if (isTypingTarget(e.target)) return
+      if (e.metaKey || e.ctrlKey) return
+      const p = playerRef.current
+      if (!p) return
+      const dur = p.getDuration()
+      const cur = p.getCurrentTime()
+      const step = e.shiftKey ? 5 : e.altKey ? 0.1 : 1
+      switch (e.key) {
+        case ' ':
+          e.preventDefault()
+          if (playing) p.pauseVideo()
+          else p.playVideo()
+          return
+        case 'ArrowLeft':
+          e.preventDefault()
+          p.seekTo(Math.max(0, cur - step), true)
+          return
+        case 'ArrowRight':
+          e.preventDefault()
+          p.seekTo(Math.min(dur, cur + step), true)
+          return
+        case 'i':
+        case 'I':
+          e.preventDefault()
+          startMark()
+          return
+        case 'o':
+        case 'O':
+          e.preventDefault()
+          if (markStart !== null) endMark()
+          return
+        case 'p':
+        case 'P':
+          e.preventDefault()
+          addPointAtCurrentTime()
+          return
+        case 'Escape':
+          e.preventDefault()
+          if (markStart !== null) cancelMark()
+          else onSelectMemo(null)
+          return
+        case 'l':
+        case 'L': {
+          if (!selectedMemoId) return
+          const memo = memos.find((m) => m.id === selectedMemoId)
+          if (!memo || !canLoop(memo)) return
+          e.preventDefault()
+          void setLoop(track.id, memo.loop ? null : memo.id)
+          return
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, playing, markStart, selectedMemoId, memos, track.id])
+
   const playPct = duration > 0 ? (time / duration) * 100 : 0
 
   return (
@@ -287,29 +411,39 @@ export function YouTubePlayer({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={() => setDrag(null)}
+          onPointerCancel={onPointerUp}
           onPointerLeave={onPointerLeave}
           className="relative h-24 w-full select-none rounded bg-bg-elev"
           style={{
             backgroundImage:
               'repeating-linear-gradient(to right, rgba(255,255,255,0.04) 0, rgba(255,255,255,0.04) 1px, transparent 1px, transparent 6px)',
-            cursor: drag ? 'grabbing' : 'crosshair',
+            cursor: scrubbing ? 'grabbing' : 'pointer',
           }}
         >
           {duration > 0 &&
             memos.map((m) => {
-              const startPct = (m.start / duration) * 100
-              const visualEnd = regionEnd(m, duration)
-              const endPct = (visualEnd / duration) * 100
               const isPoint = m.end === undefined
               const isSelected = m.id === selectedMemoId
+              const isEdgeDragging = edgeDrag?.memoId === m.id
+              const liveStart =
+                isEdgeDragging && edgeDrag.edge === 'start'
+                  ? edgeDrag.preview
+                  : m.start
+              const liveEnd =
+                !isPoint && isEdgeDragging && edgeDrag.edge === 'end'
+                  ? edgeDrag.preview
+                  : m.end !== undefined
+                    ? m.end
+                    : regionEnd(m, duration)
+              const startPct = (liveStart / duration) * 100
+              const endPct = (liveEnd / duration) * 100
               const widthPct = Math.max(endPct - startPct, 0.25)
               return (
                 <div
                   key={m.id}
                   onPointerDown={(e) => {
                     e.stopPropagation()
-                    playerRef.current?.seekTo(m.start, true)
+                    playerRef.current?.seekTo(liveStart, true)
                     onSelectMemo(m.id)
                   }}
                   style={{
@@ -319,7 +453,26 @@ export function YouTubePlayer({
                   }}
                   className="absolute top-0 bottom-0 cursor-pointer rounded-sm"
                   title={m.body || (isPoint ? 'Point memo' : 'Range memo')}
-                />
+                >
+                  {!isPoint && (
+                    <>
+                      <div
+                        onPointerDown={(e) => startEdgeDrag(e, m, 'start')}
+                        onPointerMove={onEdgePointerMove}
+                        onPointerUp={onEdgePointerUp}
+                        onPointerCancel={onEdgePointerUp}
+                        className="absolute top-0 bottom-0 -left-1 w-2 cursor-ew-resize bg-text-strong/0 hover:bg-text-strong/40"
+                      />
+                      <div
+                        onPointerDown={(e) => startEdgeDrag(e, m, 'end')}
+                        onPointerMove={onEdgePointerMove}
+                        onPointerUp={onEdgePointerUp}
+                        onPointerCancel={onEdgePointerUp}
+                        className="absolute top-0 bottom-0 -right-1 w-2 cursor-ew-resize bg-text-strong/0 hover:bg-text-strong/40"
+                      />
+                    </>
+                  )}
+                </div>
               )
             })}
           {markStart !== null && duration > 0 && (() => {
@@ -336,25 +489,13 @@ export function YouTubePlayer({
               />
             )
           })()}
-          {drag &&
-            duration > 0 &&
-            (() => {
-              const a = (Math.min(drag.start, drag.current) / duration) * 100
-              const b = (Math.max(drag.start, drag.current) / duration) * 100
-              return (
-                <div
-                  style={{ left: `${a}%`, width: `${Math.max(b - a, 0.2)}%` }}
-                  className="pointer-events-none absolute top-0 bottom-0 rounded-sm bg-accent/40"
-                />
-              )
-            })()}
-          {ready && (
+          {ready && showCursor && (
             <div
               style={{ left: `${playPct}%` }}
               className="pointer-events-none absolute top-0 bottom-0 w-0.5 -translate-x-px bg-text-strong"
             />
           )}
-          {hoverPct !== null && !drag && (
+          {hoverPct !== null && !scrubbing && (
             <>
               <div
                 style={{ left: `${hoverPct * 100}%` }}
@@ -420,7 +561,20 @@ export function YouTubePlayer({
           {formatTime(time)} <span className="opacity-50">/</span>{' '}
           {formatTime(duration)}
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            type="button"
+            disabled={!ready}
+            onClick={() => setShowCursor((v) => !v)}
+            title={showCursor ? 'Hide playhead' : 'Show playhead'}
+            className={`rounded-md border px-2 py-1.5 text-xs ${
+              showCursor
+                ? 'border-line text-text hover:text-text-strong'
+                : 'border-line bg-bg-elev text-text-muted'
+            } disabled:opacity-40`}
+          >
+            {showCursor ? '👁 Bar' : '◌ Bar'}
+          </button>
           <SpeedInput
             value={speed}
             onCommit={changeSpeed}
