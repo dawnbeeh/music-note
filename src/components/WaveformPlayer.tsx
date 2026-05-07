@@ -215,17 +215,34 @@ export function WaveformPlayer({
         })
         if (!isPoint) {
           let dragWasPlaying: boolean | null = null
+          let lastSeekAt = 0
+          let pauseTimer: number | null = null
+          const clearPauseTimer = () => {
+            if (pauseTimer !== null) {
+              window.clearTimeout(pauseTimer)
+              pauseTimer = null
+            }
+          }
           region.on('update', (side) => {
             const ws = wsRef.current
             if (!ws || !side) return
-            if (dragWasPlaying === null) {
-              dragWasPlaying = ws.isPlaying()
-              if (!dragWasPlaying) void ws.play()
+            if (dragWasPlaying === null) dragWasPlaying = ws.isPlaying()
+            const now = performance.now()
+            if (now - lastSeekAt > 30) {
+              const t = side === 'start' ? region.start : region.end
+              ws.setTime(t)
+              lastSeekAt = now
             }
-            const t = side === 'start' ? region.start : region.end
-            ws.setTime(t)
+            if (!ws.isPlaying()) void ws.play()
+            clearPauseTimer()
+            pauseTimer = window.setTimeout(() => {
+              const w = wsRef.current
+              if (w && w.isPlaying()) w.pause()
+              pauseTimer = null
+            }, 150)
           })
           region.on('update-end', () => {
+            clearPauseTimer()
             const ws = wsRef.current
             const m = memosRef.current.find((x) => x.id === memoId)
             const startedPlaying = dragWasPlaying
@@ -233,7 +250,11 @@ export function WaveformPlayer({
             if (m && (m.start !== region.start || m.end !== region.end)) {
               void updateMemoBoundsById(memoId, region.start, region.end)
             }
-            if (ws && startedPlaying === false) ws.pause()
+            if (ws) {
+              if (startedPlaying === false && ws.isPlaying()) ws.pause()
+              else if (startedPlaying === true && !ws.isPlaying())
+                void ws.play()
+            }
           })
         }
       } else {

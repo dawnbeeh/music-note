@@ -62,6 +62,7 @@ export function YouTubePlayer({
     preview: number
     wasPlaying: boolean
   } | null>(null)
+  const edgeSeekRef = useRef({ lastSeekAt: 0, pauseTimer: 0 })
   const [markStart, setMarkStart] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [speed, setSpeed] = useState(1)
@@ -235,6 +236,13 @@ export function YouTubePlayer({
     setHoverPct(null)
   }
 
+  function clearEdgePauseTimer() {
+    if (edgeSeekRef.current.pauseTimer) {
+      window.clearTimeout(edgeSeekRef.current.pauseTimer)
+      edgeSeekRef.current.pauseTimer = 0
+    }
+  }
+
   function startEdgeDrag(
     e: React.PointerEvent,
     memo: Memo,
@@ -255,6 +263,7 @@ export function YouTubePlayer({
       wasPlaying,
     })
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    edgeSeekRef.current.lastSeekAt = performance.now()
     p.seekTo(t, true)
     if (!wasPlaying) p.playVideo()
   }
@@ -270,7 +279,20 @@ export function YouTubePlayer({
         ? Math.max(0, Math.min(t, memo.end - 0.05))
         : Math.min(duration, Math.max(t, memo.start + 0.05))
     setEdgeDrag({ ...edgeDrag, preview: clamped })
-    playerRef.current?.seekTo(clamped, true)
+    const p = playerRef.current
+    if (!p) return
+    const now = performance.now()
+    if (now - edgeSeekRef.current.lastSeekAt > 30) {
+      p.seekTo(clamped, true)
+      edgeSeekRef.current.lastSeekAt = now
+    }
+    if (p.getPlayerState() !== 1) p.playVideo()
+    clearEdgePauseTimer()
+    edgeSeekRef.current.pauseTimer = window.setTimeout(() => {
+      const pp = playerRef.current
+      if (pp && pp.getPlayerState() === 1) pp.pauseVideo()
+      edgeSeekRef.current.pauseTimer = 0
+    }, 150)
   }
 
   function onEdgePointerUp(e: React.PointerEvent) {
@@ -281,6 +303,7 @@ export function YouTubePlayer({
     } catch {
       /* ignore */
     }
+    clearEdgePauseTimer()
     const memo = memos.find((m) => m.id === edgeDrag.memoId)
     if (memo && memo.end !== undefined) {
       const start =
@@ -290,7 +313,11 @@ export function YouTubePlayer({
         void updateMemoBounds(memo, start, end)
       }
     }
-    if (!edgeDrag.wasPlaying) playerRef.current?.pauseVideo()
+    const p = playerRef.current
+    if (p) {
+      if (!edgeDrag.wasPlaying && p.getPlayerState() === 1) p.pauseVideo()
+      else if (edgeDrag.wasPlaying && p.getPlayerState() !== 1) p.playVideo()
+    }
     setEdgeDrag(null)
   }
 
