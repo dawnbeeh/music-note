@@ -23,8 +23,8 @@ const POINT_MIN_PAD = 0.5
 const COLOR_DRAFT = 'rgba(244, 114, 182, 0.4)'
 
 const ZOOM_BASE = 80
-const ZOOM_MAX = 1600
-const ZOOM_STEP = 1.5
+const ZOOM_RATIOS = [0.5, 1, 1.5, 2] as const
+const ZOOM_MAX = ZOOM_RATIOS[ZOOM_RATIOS.length - 1] * ZOOM_BASE
 
 function regionEnd(memo: Memo, duration: number): number {
   if (memo.end !== undefined) return memo.end
@@ -519,28 +519,19 @@ export function WaveformPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, markStart, selectedMemoId, track.id])
 
-  function getMinZoom(): number {
-    const dur = wsRef.current?.getDuration() ?? 0
-    const scrollEl = containerRef.current?.querySelector(
-      '[part="scroll"]',
-    ) as HTMLElement | null
-    if (!scrollEl || dur <= 0) return ZOOM_BASE
-    return scrollEl.clientWidth / dur
-  }
   function zoomIn() {
-    const minZoom = getMinZoom()
     setZoom((z) => {
-      const cur = z === 0 ? minZoom : z
-      return Math.min(ZOOM_MAX, cur * ZOOM_STEP)
+      const ratio = z / ZOOM_BASE
+      const next = ZOOM_RATIOS.find((r) => r > ratio + 1e-3)
+      return next !== undefined ? next * ZOOM_BASE : z
     })
   }
   function zoomOut() {
-    const minZoom = getMinZoom()
     setZoom((z) => {
       if (z === 0) return 0
-      const next = z / ZOOM_STEP
-      if (next <= minZoom * 1.05) return 0
-      return next
+      const ratio = z / ZOOM_BASE
+      const prev = [...ZOOM_RATIOS].reverse().find((r) => r < ratio - 1e-3)
+      return prev !== undefined ? prev * ZOOM_BASE : 0
     })
   }
   function zoomReset() {
@@ -645,14 +636,14 @@ export function WaveformPlayer({
                   ? 'Stop following playhead'
                   : 'Follow playhead (auto-scroll)'
               }
-              className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-40 ${
+              className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors disabled:opacity-40 ${
                 followPlayhead
-                  ? 'bg-accent'
-                  : 'border border-line bg-bg-elev'
+                  ? 'border-accent bg-accent'
+                  : 'border-line bg-bg-elev'
               }`}
             >
               <span
-                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform ${
                   followPlayhead ? 'translate-x-[18px]' : 'translate-x-0.5'
                 }`}
               />
