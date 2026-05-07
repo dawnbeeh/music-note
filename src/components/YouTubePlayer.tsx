@@ -18,12 +18,19 @@ interface SeekRequest {
   time: number
 }
 
+interface PlayToggleRequest {
+  nonce: number
+  start: number
+  end?: number
+}
+
 interface Props {
   track: Track
   memos: Memo[]
   selectedMemoId: string | null
   onSelectMemo: (id: string | null) => void
   seekRequest: SeekRequest | null
+  playToggleRequest: PlayToggleRequest | null
 }
 
 const POINT_MIN_PAD = 0.5
@@ -41,6 +48,7 @@ export function YouTubePlayer({
   selectedMemoId,
   onSelectMemo,
   seekRequest,
+  playToggleRequest,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const playerRef = useRef<YTPlayer | null>(null)
@@ -181,6 +189,24 @@ export function YouTubePlayer({
     if (!ready || !seekRequest || !playerRef.current) return
     playerRef.current.seekTo(seekRequest.time, true)
   }, [ready, seekRequest])
+
+  useEffect(() => {
+    const p = playerRef.current
+    if (!p || !ready || !playToggleRequest) return
+    const { start, end } = playToggleRequest
+    const cur = p.getCurrentTime()
+    const isPlaying = p.getPlayerState() === 1
+    const within =
+      end !== undefined
+        ? cur >= start && cur < end
+        : cur >= start && cur < start + 1
+    if (isPlaying && within) {
+      p.pauseVideo()
+    } else {
+      p.seekTo(start, true)
+      p.playVideo()
+    }
+  }, [ready, playToggleRequest])
 
   function timeFromX(clientX: number): number {
     const el = timelineRef.current

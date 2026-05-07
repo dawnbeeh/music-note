@@ -16,10 +16,18 @@ interface SeekRequest {
   time: number
 }
 
+interface PlayToggleRequest {
+  nonce: number
+  start: number
+  end?: number
+}
+
 function App() {
   const [selectedTrackId, setSelectedTrackId] = useState<string | null>(null)
   const [selectedMemoId, setSelectedMemoId] = useState<string | null>(null)
   const [seekRequest, setSeekRequest] = useState<SeekRequest | null>(null)
+  const [playToggleRequest, setPlayToggleRequest] =
+    useState<PlayToggleRequest | null>(null)
   const [showHelp, setShowHelp] = useState(false)
   const history = useHistoryState(selectedTrackId)
 
@@ -59,6 +67,10 @@ function App() {
 
   function requestSeek(time: number) {
     setSeekRequest({ nonce: Date.now(), time })
+  }
+
+  function requestPlayToggle(start: number, end: number | undefined) {
+    setPlayToggleRequest({ nonce: Date.now(), start, end })
   }
 
   useEffect(() => {
@@ -142,6 +154,7 @@ function App() {
                     selectedMemoId={selectedMemoId}
                     onSelectMemo={setSelectedMemoId}
                     seekRequest={seekRequest}
+                    playToggleRequest={playToggleRequest}
                   />
                 ) : (
                   <WaveformPlayer
@@ -151,6 +164,7 @@ function App() {
                     selectedMemoId={selectedMemoId}
                     onSelectMemo={setSelectedMemoId}
                     seekRequest={seekRequest}
+                    playToggleRequest={playToggleRequest}
                   />
                 )}
                 <MemoPanel
@@ -159,6 +173,7 @@ function App() {
                   selectedMemoId={selectedMemoId}
                   onSelect={setSelectedMemoId}
                   onSeek={requestSeek}
+                  onTogglePlay={requestPlayToggle}
                 />
               </>
             ) : (

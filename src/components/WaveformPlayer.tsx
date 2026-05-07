@@ -24,6 +24,7 @@ const COLOR_DRAFT = 'rgba(244, 114, 182, 0.4)'
 
 const ZOOM_BASE = 80
 const ZOOM_MAX = 1600
+const ZOOM_STEP = 1.5
 
 function regionEnd(memo: Memo, duration: number): number {
   if (memo.end !== undefined) return memo.end
@@ -36,12 +37,19 @@ interface SeekRequest {
   time: number
 }
 
+interface PlayToggleRequest {
+  nonce: number
+  start: number
+  end?: number
+}
+
 interface Props {
   track: Track
   memos: Memo[]
   selectedMemoId: string | null
   onSelectMemo: (id: string | null) => void
   seekRequest: SeekRequest | null
+  playToggleRequest: PlayToggleRequest | null
 }
 
 export function WaveformPlayer({
@@ -50,6 +58,7 @@ export function WaveformPlayer({
   selectedMemoId,
   onSelectMemo,
   seekRequest,
+  playToggleRequest,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const wsRef = useRef<WaveSurfer | null>(null)
@@ -253,6 +262,23 @@ export function WaveformPlayer({
     if (!ws || !ready || !seekRequest) return
     ws.setTime(seekRequest.time)
   }, [seekRequest, ready])
+
+  useEffect(() => {
+    const ws = wsRef.current
+    if (!ws || !ready || !playToggleRequest) return
+    const { start, end } = playToggleRequest
+    const cur = ws.getCurrentTime()
+    const within =
+      end !== undefined
+        ? cur >= start && cur < end
+        : cur >= start && cur < start + 1
+    if (ws.isPlaying() && within) {
+      ws.pause()
+    } else {
+      ws.setTime(start)
+      void ws.play()
+    }
+  }, [playToggleRequest, ready])
 
   useEffect(() => {
     const ws = wsRef.current
@@ -493,14 +519,28 @@ export function WaveformPlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, markStart, selectedMemoId, track.id])
 
+  function getMinZoom(): number {
+    const dur = wsRef.current?.getDuration() ?? 0
+    const scrollEl = containerRef.current?.querySelector(
+      '[part="scroll"]',
+    ) as HTMLElement | null
+    if (!scrollEl || dur <= 0) return ZOOM_BASE
+    return scrollEl.clientWidth / dur
+  }
   function zoomIn() {
-    setZoom((z) => (z === 0 ? ZOOM_BASE : Math.min(z * 2, ZOOM_MAX)))
+    const minZoom = getMinZoom()
+    setZoom((z) => {
+      const cur = z === 0 ? minZoom : z
+      return Math.min(ZOOM_MAX, cur * ZOOM_STEP)
+    })
   }
   function zoomOut() {
+    const minZoom = getMinZoom()
     setZoom((z) => {
       if (z === 0) return 0
-      if (z <= ZOOM_BASE) return 0
-      return z / 2
+      const next = z / ZOOM_STEP
+      if (next <= minZoom * 1.05) return 0
+      return next
     })
   }
   function zoomReset() {
@@ -592,23 +632,32 @@ export function WaveformPlayer({
           {formatTime(duration)}
         </div>
         <div className="ml-auto flex items-center gap-3">
-          <button
-            type="button"
-            disabled={!ready}
-            onClick={() => setFollowPlayhead((v) => !v)}
-            title={
-              followPlayhead
-                ? 'Stop following playhead'
-                : 'Follow playhead (auto-scroll)'
-            }
-            className={`rounded-md border px-2 py-1.5 text-xs ${
-              followPlayhead
-                ? 'border-line bg-bg-elev text-text-strong'
-                : 'border-line text-text-muted hover:text-text-strong'
-            } disabled:opacity-40`}
-          >
-            {followPlayhead ? '🎯 Track' : '↔ Free'}
-          </button>
+          <label className="flex select-none items-center gap-2 text-xs text-text-muted">
+            <span>Track</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={followPlayhead}
+              disabled={!ready}
+              onClick={() => setFollowPlayhead((v) => !v)}
+              title={
+                followPlayhead
+                  ? 'Stop following playhead'
+                  : 'Follow playhead (auto-scroll)'
+              }
+              className={`relative h-5 w-9 rounded-full transition-colors disabled:opacity-40 ${
+                followPlayhead
+                  ? 'bg-accent'
+                  : 'border border-line bg-bg-elev'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                  followPlayhead ? 'translate-x-[18px]' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
+          </label>
           <div className="flex items-center gap-1 text-xs text-text-muted">
             <span>Zoom</span>
             <button

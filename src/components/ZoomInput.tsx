@@ -38,7 +38,7 @@ export function ZoomInput({ value, base, max, onCommit, disabled }: Props) {
       return
     }
     const target = n * base
-    const clamped = Math.max(base, Math.min(max, target))
+    const clamped = Math.min(max, Math.max(0, target))
     if (Math.abs(clamped - value) < 0.5) {
       setText(format(value, base))
       return

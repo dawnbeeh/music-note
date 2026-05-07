@@ -17,6 +17,7 @@ interface Props {
   selectedMemoId: string | null
   onSelect: (id: string | null) => void
   onSeek: (sec: number) => void
+  onTogglePlay: (start: number, end: number | undefined) => void
 }
 
 export function MemoPanel({
@@ -25,6 +26,7 @@ export function MemoPanel({
   selectedMemoId,
   onSelect,
   onSeek,
+  onTogglePlay,
 }: Props) {
   const [activeFilters, setActiveFilters] = useState<Set<string>>(new Set())
 
@@ -130,6 +132,7 @@ export function MemoPanel({
               selected={m.id === selectedMemoId}
               onSelect={() => onSelect(m.id)}
               onSeek={onSeek}
+              onTogglePlay={onTogglePlay}
             />
           ))}
         </ul>
@@ -144,9 +147,17 @@ interface ItemProps {
   selected: boolean
   onSelect: () => void
   onSeek: (sec: number) => void
+  onTogglePlay: (start: number, end: number | undefined) => void
 }
 
-function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
+function MemoItem({
+  memo,
+  index,
+  selected,
+  onSelect,
+  onSeek,
+  onTogglePlay,
+}: ItemProps) {
   const [body, setBody] = useState(memo.body)
   const [colorOpen, setColorOpen] = useState(false)
   const saveTimer = useRef<number | null>(null)
@@ -228,10 +239,10 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
           onClick={(e) => {
             e.stopPropagation()
             onSelect()
-            onSeek(memo.start)
+            onTogglePlay(memo.start, memo.end)
           }}
           className="rounded border border-line px-2 py-1 text-xs text-text hover:text-text-strong"
-          title="Jump to start"
+          title="Play / pause"
         >
           ▶
         </button>
