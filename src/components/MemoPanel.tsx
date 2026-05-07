@@ -17,7 +17,11 @@ interface Props {
   selectedMemoId: string | null
   onSelect: (id: string | null) => void
   onSeek: (sec: number) => void
-  onTogglePlay: (start: number, end: number | undefined) => void
+  onTogglePlay: (
+    memoId: string,
+    start: number,
+    end: number | undefined,
+  ) => void
 }
 
 export function MemoPanel({
@@ -147,7 +151,11 @@ interface ItemProps {
   selected: boolean
   onSelect: () => void
   onSeek: (sec: number) => void
-  onTogglePlay: (start: number, end: number | undefined) => void
+  onTogglePlay: (
+    memoId: string,
+    start: number,
+    end: number | undefined,
+  ) => void
 }
 
 function MemoItem({
@@ -239,7 +247,7 @@ function MemoItem({
           onClick={(e) => {
             e.stopPropagation()
             onSelect()
-            onTogglePlay(memo.start, memo.end)
+            onTogglePlay(memo.id, memo.start, memo.end)
           }}
           className="rounded border border-line px-2 py-1 text-xs text-text hover:text-text-strong"
           title="Play / pause"

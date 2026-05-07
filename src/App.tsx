@@ -9,6 +9,7 @@ import { WelcomeModal } from './components/WelcomeModal'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { redo, undo } from './lib/history'
 import { useHistoryState } from './lib/useHistory'
+import { setLoop } from './lib/memoActions'
 import { isTypingTarget } from './lib/shortcuts'
 
 interface SeekRequest {
@@ -69,7 +70,15 @@ function App() {
     setSeekRequest({ nonce: Date.now(), time })
   }
 
-  function requestPlayToggle(start: number, end: number | undefined) {
+  async function requestPlayToggle(
+    memoId: string,
+    start: number,
+    end: number | undefined,
+  ) {
+    if (selectedTrackId) {
+      const otherLoop = memos.find((m) => m.loop && m.id !== memoId)
+      if (otherLoop) await setLoop(selectedTrackId, null)
+    }
     setPlayToggleRequest({ nonce: Date.now(), start, end })
   }
 

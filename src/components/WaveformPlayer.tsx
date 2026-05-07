@@ -23,7 +23,7 @@ const POINT_MIN_PAD = 0.5
 const COLOR_DRAFT = 'rgba(244, 114, 182, 0.4)'
 
 const ZOOM_BASE = 80
-const ZOOM_RATIOS = [0.5, 1, 1.5, 2] as const
+const ZOOM_RATIOS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 20] as const
 const ZOOM_MAX = ZOOM_RATIOS[ZOOM_RATIOS.length - 1] * ZOOM_BASE
 
 function regionEnd(memo: Memo, duration: number): number {
