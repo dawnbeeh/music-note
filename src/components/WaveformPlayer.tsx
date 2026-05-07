@@ -68,7 +68,7 @@ export function WaveformPlayer({
   const [zoom, setZoom] = useState(0)
   const zoomRef = useRef(0)
   zoomRef.current = zoom
-  const [showCursor, setShowCursor] = useState(true)
+  const [followPlayhead, setFollowPlayhead] = useState(true)
 
   const colorByMemoId = useMemo(() => {
     const sorted = [...memos].sort((a, b) => a.start - b.start)
@@ -210,15 +210,30 @@ export function WaveformPlayer({
           start,
           end,
           color,
-          drag: !isPoint,
+          drag: false,
           resize: !isPoint,
         })
         if (!isPoint) {
+          let dragWasPlaying: boolean | null = null
+          region.on('update', (side) => {
+            const ws = wsRef.current
+            if (!ws || !side) return
+            if (dragWasPlaying === null) {
+              dragWasPlaying = ws.isPlaying()
+              if (!dragWasPlaying) void ws.play()
+            }
+            const t = side === 'start' ? region.start : region.end
+            ws.setTime(t)
+          })
           region.on('update-end', () => {
+            const ws = wsRef.current
             const m = memosRef.current.find((x) => x.id === memoId)
-            if (!m) return
-            if (m.start === region.start && m.end === region.end) return
-            void updateMemoBoundsById(memoId, region.start, region.end)
+            const startedPlaying = dragWasPlaying
+            dragWasPlaying = null
+            if (m && (m.start !== region.start || m.end !== region.end)) {
+              void updateMemoBoundsById(memoId, region.start, region.end)
+            }
+            if (ws && startedPlaying === false) ws.pause()
           })
         }
       } else {
@@ -294,12 +309,15 @@ export function WaveformPlayer({
     ws.zoom(zoom)
   }, [zoom, ready])
 
-  // Cursor visibility toggle
+  // Auto-tracking toggle: when on, waveform scrolls/centers to follow the playhead
   useEffect(() => {
     const ws = wsRef.current
     if (!ws || !ready) return
-    ws.setOptions({ cursorWidth: showCursor ? 2 : 0 })
-  }, [showCursor, ready])
+    ws.setOptions({
+      autoScroll: followPlayhead,
+      autoCenter: followPlayhead,
+    })
+  }, [followPlayhead, ready])
 
   // Wheel zoom (around cursor) + Shift-wheel pan; drag-scrub with audio
   useEffect(() => {
@@ -593,15 +611,19 @@ export function WaveformPlayer({
           <button
             type="button"
             disabled={!ready}
-            onClick={() => setShowCursor((v) => !v)}
-            title={showCursor ? 'Hide playhead' : 'Show playhead'}
+            onClick={() => setFollowPlayhead((v) => !v)}
+            title={
+              followPlayhead
+                ? 'Stop following playhead'
+                : 'Follow playhead (auto-scroll)'
+            }
             className={`rounded-md border px-2 py-1.5 text-xs ${
-              showCursor
-                ? 'border-line text-text hover:text-text-strong'
-                : 'border-line bg-bg-elev text-text-muted'
+              followPlayhead
+                ? 'border-line bg-bg-elev text-text-strong'
+                : 'border-line text-text-muted hover:text-text-strong'
             } disabled:opacity-40`}
           >
-            {showCursor ? '👁 Bar' : '◌ Bar'}
+            {followPlayhead ? '🎯 Track' : '↔ Free'}
           </button>
           <div className="flex items-center gap-1 text-xs text-text-muted">
             <span>Zoom</span>

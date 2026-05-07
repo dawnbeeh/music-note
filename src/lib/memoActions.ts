@@ -10,6 +10,9 @@ import { db } from '../db'
 import type { Memo } from '../db/types'
 import { record } from './history'
 
+// History tracks structural changes only: create, delete, bounds.
+// Body / color / loop changes are left out so undo doesn't fight every keystroke.
+
 export async function createMemo(
   trackId: string,
   start: number,
@@ -20,23 +23,6 @@ export async function createMemo(
 
 export async function deleteMemo(memo: Memo): Promise<void> {
   await record(memo.trackId, 'Delete memo', () => rawDelete(memo.id))
-}
-
-export async function setLoop(
-  trackId: string,
-  memoId: string | null,
-): Promise<void> {
-  await record(trackId, 'Toggle loop', () => rawSetLoop(trackId, memoId))
-}
-
-export async function setMemoColor(memo: Memo, color: string): Promise<void> {
-  await record(memo.trackId, 'Change color', () =>
-    rawSetColor(memo.id, color),
-  )
-}
-
-export async function updateMemoBody(memo: Memo, body: string): Promise<void> {
-  await record(memo.trackId, 'Edit memo', () => rawUpdateBody(memo.id, body))
 }
 
 export async function updateMemoBounds(
@@ -57,4 +43,19 @@ export async function updateMemoBoundsById(
   const m = await db.memos.get(id)
   if (!m) return
   await updateMemoBounds(m, start, end)
+}
+
+export async function setLoop(
+  trackId: string,
+  memoId: string | null,
+): Promise<void> {
+  await rawSetLoop(trackId, memoId)
+}
+
+export async function setMemoColor(memo: Memo, color: string): Promise<void> {
+  await rawSetColor(memo.id, color)
+}
+
+export async function updateMemoBody(memo: Memo, body: string): Promise<void> {
+  await rawUpdateBody(memo.id, body)
 }

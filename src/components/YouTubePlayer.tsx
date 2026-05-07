@@ -60,11 +60,11 @@ export function YouTubePlayer({
     edge: 'start' | 'end'
     pointerId: number
     preview: number
+    wasPlaying: boolean
   } | null>(null)
   const [markStart, setMarkStart] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [speed, setSpeed] = useState(1)
-  const [showCursor, setShowCursor] = useState(true)
 
   const colorByMemoId = useMemo(() => {
     const sorted = [...memos].sort((a, b) => a.start - b.start)
@@ -241,11 +241,22 @@ export function YouTubePlayer({
     edge: 'start' | 'end',
   ) {
     if (!ready || memo.end === undefined) return
+    const p = playerRef.current
+    if (!p) return
     e.stopPropagation()
     e.preventDefault()
     const t = edge === 'start' ? memo.start : memo.end
-    setEdgeDrag({ memoId: memo.id, edge, pointerId: e.pointerId, preview: t })
+    const wasPlaying = playing
+    setEdgeDrag({
+      memoId: memo.id,
+      edge,
+      pointerId: e.pointerId,
+      preview: t,
+      wasPlaying,
+    })
     ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    p.seekTo(t, true)
+    if (!wasPlaying) p.playVideo()
   }
 
   function onEdgePointerMove(e: React.PointerEvent) {
@@ -259,6 +270,7 @@ export function YouTubePlayer({
         ? Math.max(0, Math.min(t, memo.end - 0.05))
         : Math.min(duration, Math.max(t, memo.start + 0.05))
     setEdgeDrag({ ...edgeDrag, preview: clamped })
+    playerRef.current?.seekTo(clamped, true)
   }
 
   function onEdgePointerUp(e: React.PointerEvent) {
@@ -278,6 +290,7 @@ export function YouTubePlayer({
         void updateMemoBounds(memo, start, end)
       }
     }
+    if (!edgeDrag.wasPlaying) playerRef.current?.pauseVideo()
     setEdgeDrag(null)
   }
 
@@ -489,7 +502,7 @@ export function YouTubePlayer({
               />
             )
           })()}
-          {ready && showCursor && (
+          {ready && (
             <div
               style={{ left: `${playPct}%` }}
               className="pointer-events-none absolute top-0 bottom-0 w-0.5 -translate-x-px bg-text-strong"
@@ -561,20 +574,7 @@ export function YouTubePlayer({
           {formatTime(time)} <span className="opacity-50">/</span>{' '}
           {formatTime(duration)}
         </div>
-        <div className="ml-auto flex items-center gap-3">
-          <button
-            type="button"
-            disabled={!ready}
-            onClick={() => setShowCursor((v) => !v)}
-            title={showCursor ? 'Hide playhead' : 'Show playhead'}
-            className={`rounded-md border px-2 py-1.5 text-xs ${
-              showCursor
-                ? 'border-line text-text hover:text-text-strong'
-                : 'border-line bg-bg-elev text-text-muted'
-            } disabled:opacity-40`}
-          >
-            {showCursor ? '👁 Bar' : '◌ Bar'}
-          </button>
+        <div className="ml-auto">
           <SpeedInput
             value={speed}
             onCommit={changeSpeed}
