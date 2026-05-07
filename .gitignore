@@ -31,3 +31,6 @@ dist-ssr
 # build caches
 .vite
 tsconfig.*.tsbuildinfo
+
+# personal notes (not committed)
+NOTES.md
