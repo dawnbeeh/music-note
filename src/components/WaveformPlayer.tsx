@@ -378,8 +378,8 @@ export function WaveformPlayer({
       if (e.button !== 0) return
       const target = e.target as HTMLElement
       if (
-        target.closest('[part="region"]') ||
-        target.closest('[data-handle]')
+        target.closest('[part*="region"]') ||
+        target.closest('[part*="marker"]')
       ) {
         return
       }
