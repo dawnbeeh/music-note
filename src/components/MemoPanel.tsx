@@ -149,16 +149,11 @@ interface ItemProps {
 function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
   const [body, setBody] = useState(memo.body)
   const [colorOpen, setColorOpen] = useState(false)
-  const taRef = useRef<HTMLTextAreaElement | null>(null)
   const saveTimer = useRef<number | null>(null)
 
   useEffect(() => {
     setBody(memo.body)
   }, [memo.id, memo.body])
-
-  useEffect(() => {
-    if (selected) taRef.current?.focus({ preventScroll: true })
-  }, [selected])
 
   useEffect(() => {
     return () => {
@@ -206,8 +201,11 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
 
   return (
     <li
-      onClick={onSelect}
-      className={`px-4 py-3 transition-colors ${
+      onClick={() => {
+        onSelect()
+        onSeek(memo.start)
+      }}
+      className={`cursor-pointer px-4 py-3 transition-colors ${
         selected ? 'bg-bg-elev/50' : ''
       }`}
       style={{ borderLeft: `3px solid ${colorHex}` }}
@@ -225,55 +223,55 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
         >
           <span className="text-[10px] font-semibold text-bg">{index}</span>
         </button>
-        <MemoTimeInput
-          value={memo.start}
-          onCommit={commitStart}
-          ariaLabel="Start time"
-          className="w-24 rounded border border-line bg-bg-elev px-2 py-1 font-mono text-xs tabular-nums text-text focus:border-accent focus:outline-none"
-        />
-        {!isPoint && memo.end !== undefined && (
-          <>
-            <span className="text-xs text-text-muted">→</span>
-            <MemoTimeInput
-              value={memo.end}
-              onCommit={commitEnd}
-              ariaLabel="End time"
-              className="w-24 rounded border border-line bg-bg-elev px-2 py-1 font-mono text-xs tabular-nums text-text focus:border-accent focus:outline-none"
-            />
-          </>
-        )}
-        {isPoint && (
-          <span className="text-xs text-text-muted">point memo</span>
-        )}
-        <div className="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onSelect()
+            onSeek(memo.start)
+          }}
+          className="rounded border border-line px-2 py-1 text-xs text-text hover:text-text-strong"
+          title="Jump to start"
+        >
+          ▶
+        </button>
+        {loopable && (
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              onSelect()
-              onSeek(memo.start)
+              void setLoop(memo.trackId, memo.loop ? null : memo.id)
             }}
-            className="rounded border border-line px-2 py-1 text-xs text-text hover:text-text-strong"
-            title="Jump to start"
+            className={`rounded px-2 py-1 text-xs transition-colors ${
+              memo.loop
+                ? 'bg-cyan-500/30 text-cyan-200'
+                : 'border border-line text-text-muted hover:text-text-strong'
+            }`}
+            title={memo.loop ? 'Stop looping' : 'Loop this section'}
           >
-            ▶
+            ↻ {memo.loop ? 'Looping' : 'Loop'}
           </button>
-          {loopable && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                void setLoop(memo.trackId, memo.loop ? null : memo.id)
-              }}
-              className={`rounded px-2 py-1 text-xs transition-colors ${
-                memo.loop
-                  ? 'bg-cyan-500/30 text-cyan-200'
-                  : 'border border-line text-text-muted hover:text-text-strong'
-              }`}
-              title={memo.loop ? 'Stop looping' : 'Loop this section'}
-            >
-              ↻ {memo.loop ? 'Looping' : 'Loop'}
-            </button>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <MemoTimeInput
+            value={memo.start}
+            onCommit={commitStart}
+            ariaLabel="Start time"
+            className="w-24 rounded border border-line bg-bg-elev px-2 py-1 font-mono text-xs tabular-nums text-text focus:border-accent focus:outline-none"
+          />
+          {!isPoint && memo.end !== undefined && (
+            <>
+              <span className="text-xs text-text-muted">→</span>
+              <MemoTimeInput
+                value={memo.end}
+                onCommit={commitEnd}
+                ariaLabel="End time"
+                className="w-24 rounded border border-line bg-bg-elev px-2 py-1 font-mono text-xs tabular-nums text-text focus:border-accent focus:outline-none"
+              />
+            </>
+          )}
+          {isPoint && (
+            <span className="text-xs text-text-muted">point memo</span>
           )}
           <button
             type="button"
@@ -281,7 +279,7 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
               e.stopPropagation()
               void deleteMemo(memo)
             }}
-            className="rounded px-2 py-1 text-xs text-text-muted hover:text-red-400"
+            className="ml-1 rounded px-2 py-1 text-xs text-text-muted hover:text-red-400"
             title="Delete memo"
           >
             ✕
@@ -314,7 +312,6 @@ function MemoItem({ memo, index, selected, onSelect, onSeek }: ItemProps) {
         </div>
       )}
       <textarea
-        ref={taRef}
         value={body}
         onChange={(e) => onChange(e.target.value)}
         onBlur={flush}

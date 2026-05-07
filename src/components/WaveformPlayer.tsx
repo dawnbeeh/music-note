@@ -14,6 +14,7 @@ import { isTypingTarget } from '../lib/shortcuts'
 import { defaultColorIdForIndex, getColorHex, hexToRgba } from '../lib/colors'
 import { formatTime } from '../lib/format'
 import { SpeedInput } from './SpeedInput'
+import { ZoomInput } from './ZoomInput'
 
 const REGION_PREFIX = 'memo_'
 const DRAFT_REGION_ID = 'draft_mark'
@@ -536,8 +537,6 @@ export function WaveformPlayer({
     )
   }
 
-  const zoomLabel = zoom === 0 ? 'fit' : `${(zoom / ZOOM_BASE).toFixed(0)}×`
-
   return (
     <div className="flex flex-col gap-3">
       <div className="rounded-lg border border-line bg-bg-panel p-4">
@@ -620,14 +619,13 @@ export function WaveformPlayer({
             >
               −
             </button>
-            <button
-              type="button"
-              disabled={!ready || zoom === 0}
-              onClick={zoomReset}
-              className="min-w-[36px] rounded border border-line px-1 py-0.5 font-mono text-[11px] text-text hover:text-text-strong disabled:opacity-40"
-            >
-              {zoomLabel}
-            </button>
+            <ZoomInput
+              value={zoom}
+              base={ZOOM_BASE}
+              max={ZOOM_MAX}
+              onCommit={setZoom}
+              disabled={!ready}
+            />
             <button
               type="button"
               disabled={!ready || zoom >= ZOOM_MAX}
