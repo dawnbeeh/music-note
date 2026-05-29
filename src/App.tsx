@@ -5,12 +5,13 @@ import { Sidebar } from './components/Sidebar'
 import { WaveformPlayer } from './components/WaveformPlayer'
 import { YouTubePlayer } from './components/YouTubePlayer'
 import { MemoPanel } from './components/MemoPanel'
+import { MemoStage } from './components/MemoStage'
 import { WelcomeModal } from './components/WelcomeModal'
 import { ShortcutHelp } from './components/ShortcutHelp'
 import { redo, undo } from './lib/history'
 import { useHistoryState } from './lib/useHistory'
 import { setLoop } from './lib/memoActions'
-import { isTypingTarget } from './lib/shortcuts'
+import { isTypingTarget, shortcutCode } from './lib/shortcuts'
 
 interface SeekRequest {
   nonce: number
@@ -30,6 +31,9 @@ function App() {
   const [playToggleRequest, setPlayToggleRequest] =
     useState<PlayToggleRequest | null>(null)
   const [showHelp, setShowHelp] = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [memoPanelOpen, setMemoPanelOpen] = useState(true)
+  const [newMemoFolderPath, setNewMemoFolderPath] = useState<string | undefined>()
   const history = useHistoryState(selectedTrackId)
 
   const track = useLiveQuery(
@@ -64,6 +68,7 @@ function App() {
 
   useEffect(() => {
     setSelectedMemoId(null)
+    setNewMemoFolderPath(undefined)
   }, [selectedTrackId])
 
   function requestSeek(time: number) {
@@ -82,11 +87,14 @@ function App() {
     setPlayToggleRequest({ nonce: Date.now(), start, end })
   }
 
+  const selectedMemo =
+    memos.find((m) => m.id === selectedMemoId) ?? null
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (isTypingTarget(e.target)) return
       const mod = e.metaKey || e.ctrlKey
-      if (mod && (e.key === 'z' || e.key === 'Z')) {
+      if (mod && shortcutCode(e) === 'KeyZ') {
         e.preventDefault()
         if (!selectedTrackId) return
         if (e.shiftKey) void redo(selectedTrackId)
@@ -106,10 +114,31 @@ function App() {
     <div className="flex h-screen w-screen overflow-hidden bg-bg text-text">
       <WelcomeModal />
       {showHelp && <ShortcutHelp onClose={() => setShowHelp(false)} />}
-      <Sidebar
-        selectedTrackId={selectedTrackId}
-        onSelect={setSelectedTrackId}
-      />
+      {sidebarOpen ? (
+        <div className="relative h-full shrink-0">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="absolute right-2 top-2 z-10 rounded border border-line bg-bg-elev px-2 py-1 text-xs text-text-muted hover:text-text-strong"
+            title="Hide library"
+          >
+            Hide
+          </button>
+          <Sidebar
+            selectedTrackId={selectedTrackId}
+            onSelect={setSelectedTrackId}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="grid h-full w-11 shrink-0 place-items-center border-r border-line bg-bg-panel text-xs text-text-muted hover:text-text-strong"
+          title="Show library"
+        >
+          Library
+        </button>
+      )}
       <main className="flex flex-1 flex-col overflow-hidden">
         <header className="flex shrink-0 items-center gap-4 border-b border-line px-6 py-4">
           <div className="min-w-0 flex-1">
@@ -151,39 +180,46 @@ function App() {
             </button>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto">
-          <div className="space-y-6 px-6 py-6">
+        <div
+          className={`grid min-h-0 flex-1 ${
+            memoPanelOpen
+              ? 'grid-cols-[minmax(0,7fr)_minmax(300px,3fr)]'
+              : 'grid-cols-[minmax(0,1fr)_44px]'
+          }`}
+        >
+          <div className="grid min-h-0 grid-rows-[5fr_3fr] overflow-hidden">
             {track ? (
               <>
-                {track.source === 'youtube' ? (
-                  <YouTubePlayer
-                    key={track.id}
-                    track={track}
-                    memos={memos}
-                    selectedMemoId={selectedMemoId}
-                    onSelectMemo={setSelectedMemoId}
-                    seekRequest={seekRequest}
-                    playToggleRequest={playToggleRequest}
-                  />
-                ) : (
-                  <WaveformPlayer
-                    key={track.id}
-                    track={track}
-                    memos={memos}
-                    selectedMemoId={selectedMemoId}
-                    onSelectMemo={setSelectedMemoId}
-                    seekRequest={seekRequest}
-                    playToggleRequest={playToggleRequest}
-                  />
-                )}
-                <MemoPanel
+                <MemoStage
                   track={track}
-                  memos={memos}
-                  selectedMemoId={selectedMemoId}
-                  onSelect={setSelectedMemoId}
-                  onSeek={requestSeek}
-                  onTogglePlay={requestPlayToggle}
+                  memo={selectedMemo}
+                  onPlay={requestPlayToggle}
                 />
+                <div className="min-h-0 overflow-hidden p-4">
+                  {track.source === 'youtube' ? (
+                    <YouTubePlayer
+                      key={track.id}
+                      track={track}
+                      memos={memos}
+                      selectedMemoId={selectedMemoId}
+                      onSelectMemo={setSelectedMemoId}
+                      seekRequest={seekRequest}
+                      playToggleRequest={playToggleRequest}
+                      newMemoFolderPath={newMemoFolderPath}
+                    />
+                  ) : (
+                    <WaveformPlayer
+                      key={track.id}
+                      track={track}
+                      memos={memos}
+                      selectedMemoId={selectedMemoId}
+                      onSelectMemo={setSelectedMemoId}
+                      seekRequest={seekRequest}
+                      playToggleRequest={playToggleRequest}
+                      newMemoFolderPath={newMemoFolderPath}
+                    />
+                  )}
+                </div>
               </>
             ) : (
               <div className="flex h-[60vh] items-center justify-center text-sm text-text-muted">
@@ -191,6 +227,36 @@ function App() {
               </div>
             )}
           </div>
+          {memoPanelOpen ? (
+            <div className="relative min-h-0">
+              <button
+                type="button"
+                onClick={() => setMemoPanelOpen(false)}
+                className="absolute right-2 top-2 z-10 rounded border border-line bg-bg-elev px-2 py-1 text-xs text-text-muted hover:text-text-strong"
+                title="Collapse memo panel"
+              >
+                Hide
+              </button>
+              <MemoPanel
+                track={track ?? null}
+                memos={memos}
+                selectedMemoId={selectedMemoId}
+                onSelect={setSelectedMemoId}
+                onSeek={requestSeek}
+                onTogglePlay={requestPlayToggle}
+                onNewMemoFolderChange={setNewMemoFolderPath}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setMemoPanelOpen(true)}
+              className="grid h-full place-items-center border-l border-line bg-bg-panel text-xs text-text-muted hover:text-text-strong"
+              title="Open memo panel"
+            >
+              Memos
+            </button>
+          )}
         </div>
       </main>
     </div>

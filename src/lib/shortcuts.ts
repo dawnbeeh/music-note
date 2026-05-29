@@ -5,6 +5,10 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
 }
 
+export function shortcutCode(e: KeyboardEvent): string {
+  return e.code || e.key
+}
+
 export interface ShortcutInfo {
   keys: string
   action: string
@@ -22,6 +26,8 @@ export const SHORTCUT_LIST: ShortcutInfo[] = [
   { keys: '+ / =', action: 'Zoom in' },
   { keys: '−', action: 'Zoom out' },
   { keys: '0', action: 'Zoom fit' },
+  { keys: '[' , action: 'Speed down' },
+  { keys: ']' , action: 'Speed up' },
   { keys: 'Esc', action: 'Cancel mark / clear selection' },
   { keys: '⌘/Ctrl + Z', action: 'Undo' },
   { keys: '⇧⌘/Ctrl + Z', action: 'Redo' },

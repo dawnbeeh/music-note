@@ -5,6 +5,8 @@ import {
   setMemoColor as rawSetColor,
   updateMemoBody as rawUpdateBody,
   updateMemoBounds as rawUpdateBounds,
+  updateMemoFolder as rawUpdateFolder,
+  updateMemoImage as rawUpdateImage,
 } from '../db/memos'
 import { db } from '../db'
 import type { Memo } from '../db/types'
@@ -17,8 +19,11 @@ export async function createMemo(
   trackId: string,
   start: number,
   end: number | undefined,
+  folderPath?: string,
 ): Promise<Memo> {
-  return record(trackId, 'Add memo', () => rawCreate(trackId, start, end))
+  return record(trackId, 'Add memo', () =>
+    rawCreate(trackId, start, end, folderPath),
+  )
 }
 
 export async function deleteMemo(memo: Memo): Promise<void> {
@@ -58,4 +63,19 @@ export async function setMemoColor(memo: Memo, color: string): Promise<void> {
 
 export async function updateMemoBody(memo: Memo, body: string): Promise<void> {
   await rawUpdateBody(memo.id, body)
+}
+
+export async function updateMemoFolder(
+  memo: Memo,
+  folderPath: string | undefined,
+): Promise<void> {
+  await rawUpdateFolder(memo.id, folderPath)
+}
+
+export async function updateMemoImage(
+  memo: Memo,
+  imageDataUrl: string | undefined,
+  imageName: string | undefined,
+): Promise<void> {
+  await rawUpdateImage(memo.id, imageDataUrl, imageName)
 }

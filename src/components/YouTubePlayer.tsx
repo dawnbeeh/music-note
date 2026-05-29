@@ -7,11 +7,12 @@ import {
   setLoop,
   updateMemoBounds,
 } from '../lib/memoActions'
-import { isTypingTarget } from '../lib/shortcuts'
+import { isTypingTarget, shortcutCode } from '../lib/shortcuts'
 import { defaultColorIdForIndex, getColorHex, hexToRgba } from '../lib/colors'
 import { formatTime } from '../lib/format'
 import { loadYouTubeIframeApi } from '../lib/youtube'
 import { SpeedInput } from './SpeedInput'
+import { MemoDetailBar } from './MemoDetailBar'
 
 interface SeekRequest {
   nonce: number
@@ -31,6 +32,7 @@ interface Props {
   onSelectMemo: (id: string | null) => void
   seekRequest: SeekRequest | null
   playToggleRequest: PlayToggleRequest | null
+  newMemoFolderPath?: string
 }
 
 const POINT_MIN_PAD = 0.5
@@ -49,6 +51,7 @@ export function YouTubePlayer({
   onSelectMemo,
   seekRequest,
   playToggleRequest,
+  newMemoFolderPath,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const playerRef = useRef<YTPlayer | null>(null)
@@ -352,7 +355,9 @@ export function YouTubePlayer({
     const b = Math.max(markStart, t)
     setMarkStart(null)
     if (b - a < 0.1) return
-    void createMemo(track.id, a, b).then((m) => onSelectMemo(m.id))
+    void createMemo(track.id, a, b, newMemoFolderPath).then((m) =>
+      onSelectMemo(m.id),
+    )
   }
 
   function cancelMark() {
@@ -362,9 +367,12 @@ export function YouTubePlayer({
   function addPointAtCurrentTime() {
     const p = playerRef.current
     if (!p || !ready) return
-    void createMemo(track.id, p.getCurrentTime(), undefined).then((m) =>
-      onSelectMemo(m.id),
-    )
+    void createMemo(
+      track.id,
+      p.getCurrentTime(),
+      undefined,
+      newMemoFolderPath,
+    ).then((m) => onSelectMemo(m.id))
   }
 
   // Keyboard shortcuts
@@ -378,8 +386,8 @@ export function YouTubePlayer({
       const dur = p.getDuration()
       const cur = p.getCurrentTime()
       const step = e.shiftKey ? 5 : e.altKey ? 0.1 : 1
-      switch (e.key) {
-        case ' ':
+      switch (shortcutCode(e)) {
+        case 'Space':
           e.preventDefault()
           if (playing) p.pauseVideo()
           else p.playVideo()
@@ -392,18 +400,15 @@ export function YouTubePlayer({
           e.preventDefault()
           p.seekTo(Math.min(dur, cur + step), true)
           return
-        case 'i':
-        case 'I':
+        case 'KeyI':
           e.preventDefault()
           startMark()
           return
-        case 'o':
-        case 'O':
+        case 'KeyO':
           e.preventDefault()
           if (markStart !== null) endMark()
           return
-        case 'p':
-        case 'P':
+        case 'KeyP':
           e.preventDefault()
           addPointAtCurrentTime()
           return
@@ -412,8 +417,15 @@ export function YouTubePlayer({
           if (markStart !== null) cancelMark()
           else onSelectMemo(null)
           return
-        case 'l':
-        case 'L': {
+        case 'BracketLeft':
+          e.preventDefault()
+          changeSpeed(Math.max(0.25, speed - 0.05))
+          return
+        case 'BracketRight':
+          e.preventDefault()
+          changeSpeed(Math.min(2, speed + 0.05))
+          return
+        case 'KeyL': {
           if (!selectedMemoId) return
           const memo = memos.find((m) => m.id === selectedMemoId)
           if (!memo || !canLoop(memo)) return
@@ -431,11 +443,11 @@ export function YouTubePlayer({
   const playPct = duration > 0 ? (time / duration) * 100 : 0
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-lg border border-line bg-black">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <div className="min-h-0 shrink overflow-hidden rounded-lg border border-line bg-black">
         <div ref={hostRef} className="aspect-video w-full" />
       </div>
-      <div className="rounded-lg border border-line bg-bg-panel p-3">
+      <div className="shrink-0 rounded-lg border border-line bg-bg-panel p-3">
         <div
           ref={timelineRef}
           onPointerDown={onPointerDown}
@@ -542,8 +554,12 @@ export function YouTubePlayer({
         </div>
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
       </div>
+      <MemoDetailBar
+        memo={memos.find((m) => m.id === selectedMemoId) ?? null}
+        duration={duration}
+      />
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="shrink-0 flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={!ready}

@@ -10,11 +10,12 @@ import {
   setLoop,
   updateMemoBoundsById,
 } from '../lib/memoActions'
-import { isTypingTarget } from '../lib/shortcuts'
+import { isTypingTarget, shortcutCode } from '../lib/shortcuts'
 import { defaultColorIdForIndex, getColorHex, hexToRgba } from '../lib/colors'
 import { formatTime } from '../lib/format'
 import { SpeedInput } from './SpeedInput'
 import { ZoomInput } from './ZoomInput'
+import { MemoDetailBar } from './MemoDetailBar'
 
 const REGION_PREFIX = 'memo_'
 const DRAFT_REGION_ID = 'draft_mark'
@@ -50,6 +51,7 @@ interface Props {
   onSelectMemo: (id: string | null) => void
   seekRequest: SeekRequest | null
   playToggleRequest: PlayToggleRequest | null
+  newMemoFolderPath?: string
 }
 
 export function WaveformPlayer({
@@ -59,6 +61,7 @@ export function WaveformPlayer({
   onSelectMemo,
   seekRequest,
   playToggleRequest,
+  newMemoFolderPath,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const wsRef = useRef<WaveSurfer | null>(null)
@@ -79,6 +82,7 @@ export function WaveformPlayer({
   const zoomRef = useRef(0)
   zoomRef.current = zoom
   const [followPlayhead, setFollowPlayhead] = useState(true)
+  const [peaks, setPeaks] = useState<number[][] | undefined>()
 
   const colorByMemoId = useMemo(() => {
     const sorted = [...memos].sort((a, b) => a.start - b.start)
@@ -105,6 +109,7 @@ export function WaveformPlayer({
     setMarkStart(null)
     setSpeed(1)
     setZoom(0)
+    setPeaks(undefined)
 
     const regions = RegionsPlugin.create()
     const ws = WaveSurfer.create({
@@ -115,9 +120,6 @@ export function WaveformPlayer({
       cursorWidth: 2,
       height: 96,
       normalize: true,
-      barWidth: 1,
-      barGap: 0,
-      barRadius: 0,
       autoScroll: true,
       autoCenter: true,
       plugins: [regions],
@@ -149,15 +151,18 @@ export function WaveformPlayer({
       setDuration(ws.getDuration())
       const cached = await db.waveforms.get(track.id)
       if (!cached) {
-        const peaks = ws.exportPeaks({ maxLength: 32000 })
+        const nextPeaks = ws.exportPeaks({ maxLength: 32000 })
         await db.waveforms.put({
           trackId: track.id,
-          peaks,
+          peaks: nextPeaks,
           duration: ws.getDuration(),
         })
+        setPeaks(nextPeaks)
         if (track.durationSec === 0) {
           await db.tracks.update(track.id, { durationSec: ws.getDuration() })
         }
+      } else {
+        setPeaks(cached.peaks)
       }
     })
     ws.on('play', () => setPlaying(true))
@@ -456,8 +461,8 @@ export function WaveformPlayer({
       const dur = ws.getDuration()
       const cur = ws.getCurrentTime()
       const step = e.shiftKey ? 5 : e.altKey ? 0.1 : 1
-      switch (e.key) {
-        case ' ':
+      switch (shortcutCode(e)) {
+        case 'Space':
           e.preventDefault()
           ws.playPause()
           return
@@ -469,18 +474,15 @@ export function WaveformPlayer({
           e.preventDefault()
           ws.setTime(Math.min(dur, cur + step))
           return
-        case 'i':
-        case 'I':
+        case 'KeyI':
           e.preventDefault()
           startMark()
           return
-        case 'o':
-        case 'O':
+        case 'KeyO':
           e.preventDefault()
           if (markStart !== null) endMark()
           return
-        case 'p':
-        case 'P':
+        case 'KeyP':
           e.preventDefault()
           addPointAtCurrentTime()
           return
@@ -489,22 +491,30 @@ export function WaveformPlayer({
           if (markStart !== null) cancelMark()
           else onSelectMemo(null)
           return
-        case '+':
-        case '=':
+        case 'Equal':
+        case 'NumpadAdd':
           e.preventDefault()
           zoomIn()
           return
-        case '-':
-        case '_':
+        case 'Minus':
+        case 'NumpadSubtract':
           e.preventDefault()
           zoomOut()
           return
-        case '0':
+        case 'Digit0':
+        case 'Numpad0':
           e.preventDefault()
           zoomReset()
           return
-        case 'l':
-        case 'L': {
+        case 'BracketLeft':
+          e.preventDefault()
+          changeSpeed(Math.max(0.25, speed - 0.05))
+          return
+        case 'BracketRight':
+          e.preventDefault()
+          changeSpeed(Math.min(4, speed + 0.05))
+          return
+        case 'KeyL': {
           if (!selectedMemoId) return
           const memo = memosRef.current.find((m) => m.id === selectedMemoId)
           if (!memo || !canLoop(memo)) return
@@ -553,7 +563,9 @@ export function WaveformPlayer({
     const b = Math.max(markStart, t)
     setMarkStart(null)
     if (b - a < 0.1) return
-    void createMemo(track.id, a, b).then((m) => onSelectMemo(m.id))
+    void createMemo(track.id, a, b, newMemoFolderPath).then((m) =>
+      onSelectMemo(m.id),
+    )
   }
 
   function cancelMark() {
@@ -563,18 +575,26 @@ export function WaveformPlayer({
   function addPointAtCurrentTime() {
     const ws = wsRef.current
     if (!ws || !ready) return
-    void createMemo(track.id, ws.getCurrentTime(), undefined).then((m) =>
-      onSelectMemo(m.id),
-    )
+    void createMemo(
+      track.id,
+      ws.getCurrentTime(),
+      undefined,
+      newMemoFolderPath,
+    ).then((m) => onSelectMemo(m.id))
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-lg border border-line bg-bg-panel p-4">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+      <div className="shrink-0 rounded-lg border border-line bg-bg-panel p-4">
         <div ref={containerRef} className="min-h-[96px]" />
         {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
       </div>
-      <div className="flex flex-wrap items-center gap-3">
+      <MemoDetailBar
+        memo={memos.find((m) => m.id === selectedMemoId) ?? null}
+        duration={duration}
+        peaks={peaks}
+      />
+      <div className="shrink-0 flex flex-wrap items-center gap-3">
         <button
           type="button"
           disabled={!ready}

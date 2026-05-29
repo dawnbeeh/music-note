@@ -2,12 +2,9 @@ import { db } from './index'
 import { defaultColorIdForIndex } from '../lib/colors'
 import type { Memo } from './types'
 
-const TAG_RE = /#[\p{L}\p{N}_-]+/gu
-
 export function parseTags(body: string): string[] {
-  const matches = body.match(TAG_RE) ?? []
-  const tags = matches.map((t) => t.slice(1).toLowerCase())
-  return Array.from(new Set(tags))
+  void body
+  return []
 }
 
 export function newId(): string {
@@ -18,6 +15,7 @@ export async function createMemo(
   trackId: string,
   start: number,
   end: number | undefined,
+  folderPath?: string,
 ): Promise<Memo> {
   const count = await db.memos.where('trackId').equals(trackId).count()
   const memo: Memo = {
@@ -27,6 +25,7 @@ export async function createMemo(
     end,
     body: '',
     tags: [],
+    folderPath,
     loop: false,
     createdAt: Date.now(),
     color: defaultColorIdForIndex(count),
@@ -40,7 +39,22 @@ export async function setMemoColor(id: string, color: string): Promise<void> {
 }
 
 export async function updateMemoBody(id: string, body: string): Promise<void> {
-  await db.memos.update(id, { body, tags: parseTags(body) })
+  await db.memos.update(id, { body, tags: [] })
+}
+
+export async function updateMemoFolder(
+  id: string,
+  folderPath: string | undefined,
+): Promise<void> {
+  await db.memos.update(id, { folderPath })
+}
+
+export async function updateMemoImage(
+  id: string,
+  imageDataUrl: string | undefined,
+  imageName: string | undefined,
+): Promise<void> {
+  await db.memos.update(id, { imageDataUrl, imageName })
 }
 
 export async function updateMemoBounds(

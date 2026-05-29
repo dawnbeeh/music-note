@@ -40,6 +40,9 @@ function memosEqual(a: Memo[], b: Memo[]): boolean {
       o.end !== m.end ||
       o.body !== m.body ||
       o.color !== m.color ||
+      o.folderPath !== m.folderPath ||
+      o.imageDataUrl !== m.imageDataUrl ||
+      o.imageName !== m.imageName ||
       o.loop !== m.loop ||
       o.tags.length !== m.tags.length ||
       o.tags.some((t, i) => t !== m.tags[i])

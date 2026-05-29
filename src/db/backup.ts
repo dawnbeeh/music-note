@@ -1,5 +1,5 @@
 import { db } from './index'
-import type { Memo, Track, WaveformCache } from './types'
+import type { Folder, Memo, Track, WaveformCache } from './types'
 
 interface BackupV1 {
   version: 1
@@ -7,13 +7,15 @@ interface BackupV1 {
   tracks: Track[]
   memos: Memo[]
   waveforms: WaveformCache[]
+  folders?: Folder[]
 }
 
 export async function exportBackup(): Promise<Blob> {
-  const [tracks, memos, waveforms] = await Promise.all([
+  const [tracks, memos, waveforms, folders] = await Promise.all([
     db.tracks.toArray(),
     db.memos.toArray(),
     db.waveforms.toArray(),
+    db.folders.toArray(),
   ])
   const data: BackupV1 = {
     version: 1,
@@ -21,6 +23,7 @@ export async function exportBackup(): Promise<Blob> {
     tracks,
     memos,
     waveforms,
+    folders,
   }
   const json = JSON.stringify(data, null, 2)
   return new Blob([json], { type: 'application/json' })
@@ -116,6 +119,18 @@ export async function importBackup(json: string): Promise<ImportResult> {
     if (existing) continue
     await db.waveforms.put({ ...w, trackId: finalTrackId })
     result.waveformsAdded++
+  }
+
+  if (parsed.folders) {
+    for (const f of parsed.folders) {
+      const finalTrackId = trackIdMap.get(f.trackId)
+      if (!finalTrackId) continue
+      const existing = await db.folders
+        .where('[trackId+path]')
+        .equals([finalTrackId, f.path])
+        .first()
+      if (!existing) await db.folders.put({ ...f, trackId: finalTrackId })
+    }
   }
 
   return result

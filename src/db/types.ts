@@ -30,7 +30,17 @@ export interface Memo {
   end?: number
   body: string
   tags: string[]
+  folderPath?: string
   loop: boolean
   createdAt: number
   color?: string
+  imageDataUrl?: string
+  imageName?: string
+}
+
+export interface Folder {
+  id: string
+  trackId: string
+  path: string
+  createdAt: number
 }
